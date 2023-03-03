@@ -1,0 +1,178 @@
+PXE BOOT SERVER INSTALLATION OF CENTOS 7
+
+
+Add 1 VM with 2 network-adapter 1-NAT & 1-Host Only
+Add 2 VM with network adapter Host Only
+
+
+DHCP SERVER
+
+# yum install dhcp
+# cp /usr/share/doc/dhcp-4.2.5/dhcpd.conf.example /etc/dhcpd.conf
+# vi /etc/dhcp/dhcpd.conf
+
+add below lines:--
+
+                 option domain-name-servers 192.168.125.100;
+
+                 default-lease-time 600;
+                 max-lease-time 7200;
+                 log-facility local7;
+
+                 subnet 192.168.125.0 netmask 255.255.255.0 {
+                 range  192.168.125.101 192.168.100.120;
+                 option routers 192.168.125.100;
+                 filename          "pxelinux.0";
+                 next-server       192.168.125.100;
+                 }
+
+# dhcpd -t
+# systemctl start dhcpd.service
+# systemctl status dhcpd.service
+
+
+TFTP-SERVER
+
+
+# yum install syslinux xinetd tftp-server 
+# mkdir /var/lib/tftpboot/pxelinux.cfg
+# cp /usr/share/syslinux/pxelinux.0  /var/lib/tftpboot/
+# ll /var/lib/tftpboot/
+# vim /etc/xinetd.d/tftp
+
+Add below lines
+                service tftp
+                {
+                socket_type             = dgram
+                protocol                = udp
+                wait                    = yes
+                user                    = root
+                server                  = /usr/sbin/in.tftpd
+                server_args             = -s /var/lib/tftpboot
+                disable                 = no
+                per_source              = 11
+                cps                     = 100 2
+                flags                   = IPv4
+               }
+
+# systemctl start xinetd
+# systemctl enable xinetd
+# systemctl status xinetd
+# mkdir -p /var/pxe/centos7
+# mkdir /var/lib/tftpboot/centos7
+# mount -t iso9660 -o loop /dev/sr0 /var/pxe/centos7/
+# ll /var/pxe/centos7/
+# cp /var/pxe/centos7/images/pxeboot/initrd.img /var/lib/tftpboot/centos7/
+# cp /var/pxe/centos7/images/pxeboot/vmlinuz /var/lib/tftpboot/centos7/
+# ll /var/lib/tftpboot/centos7/
+# ll /var/lib/tftpboot/pxelinux.cfg/
+# cp /usr/share/syslinux/menu.c32 /var/lib/tftpboot/
+# vi /var/lib/tftpboot/pxelinux.cfg/default
+
+Add below lines :--
+			timeout 100
+			default menu.c32
+
+			menu title ###### PXE BOOT MENU ######
+			label 1
+      			  menu label ^1) Install centos7
+        		kernel centos7/vmlinuz
+        		append initrd=centos7/initrd.img ks=http://192.168.100.100/ks/centos7-ks.cfg
+			label 2
+      			  menu label ^2) BOOT from local drive
+       		 localboot                 
+
+
+# systemctl start tftp.service
+
+
+HTTPD- SERVER
+
+
+# yum install httpd
+# systemctl start httpd
+# systemctl enable httpd
+# systemctl status httpd
+
+
+
+# vi /etc/httpd/conf.d/pxeboot.conf
+
+
+Add below lines :--
+
+
+                 Alias /centos7 /var/pxe/centos7
+                 <Directory /var/pxe/centos7>
+                    options Indexes FollowSymlinks
+                # Ip address we want to allow
+                    Require ip 127.0.0.1 192.168.100.0/24
+                </Directory>          
+
+
+# systemctl restart httpd
+# systemctl stop firewalld
+
+
+KickStart Automation Scrip
+
+# mkdir /var/www/html/ks
+# vi /var/www/html/ks/centos7-ks.cfg
+
+Add below lines :--
+
+			# create new
+			install                  
+			# automatically proceed for each steps
+			autostep
+			# reboot after installing
+			reboot
+			# encrypt algorithm
+			auth --enableshadow --passalgo=sha512
+			# installation source
+			url --url=http://192.168.125.100/centos7/
+			# install disk
+			ignoredisk --only-use=sda
+			# keyboard layouts
+			keyboard --vckeymap=jp106 --xlayouts='jp','us'
+			# system locale
+			lang en_US.UTF-8
+			# network settings
+			network --bootproto=dhcp --ipv6=auto --activate --hostname=hpcsa
+			# root password you generated above
+			rootpw --iscrypted $6$dPOqruRXWcDN8Jpo$C1myvm4/C1sdzAka8cliPSDkkXjcEm6o0wxQtEDZTcK1m4/qaJuYZ.FgXRv0v0q6BhTcGhCkFMfM95JEOtAEE/
+			# timezone
+			timezone Asia/Tokyo --isUtc --nontp
+			# bootloader's settings
+			bootloader --location=mbr --boot-drive=sda
+			# initialize all partition tables
+			zerombr
+			clearpart --all --initlabel
+			# partitioning
+			autopart --type=lvm
+
+			%packages
+			@core
+
+			%end
+
+
+# chmod 644 /var/www/html/ks/centos7-ks.cfg
+
+# setenforce 0
+# systemctl stop firewalld
+# systemctl restart dhcpd.service
+# systemctl restart xinetd
+# systemctl restart httpd
+# systemctl restart tftp.service
+
+----------------------------------------------------------------------------------
+Make new vm to install os from PXE server (above created) select adapter host only 
+BOOT VIA NETWORK or PXE Server
+
+
+
+Install Centos via PXE Network 
+----------------------------------------------------------------------------------
+
+
